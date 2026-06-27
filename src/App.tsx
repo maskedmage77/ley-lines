@@ -57,10 +57,7 @@ export default function App() {
         <LeyMapCanvas
           segments={segments}
           intersections={intersections}
-          playerX={playerX}
-          playerZ={playerZ}
           detectRadius={params.detectRadius}
-          cellSize={params.cellSize}
           onMovePlayer={movePlayer}
           sidebarOpen={sidebarOpen}
         />

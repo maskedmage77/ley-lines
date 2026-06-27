@@ -4,10 +4,7 @@ import type { PolySegment, LeyIntersection } from '../Types';
 interface Props {
   segments: PolySegment[];
   intersections: LeyIntersection[];
-  playerX: number;
-  playerZ: number;
   detectRadius: number;
-  cellSize: number;
   onMovePlayer: (x: number, z: number) => void;
   sidebarOpen: boolean;
 }
@@ -18,27 +15,85 @@ interface ViewState {
   scale: number;
 }
 
+const OFFCANVAS_SIZE = 4096; // world extent in blocks that the overlay image covers
+
 export default function LeyMapCanvas({
   segments,
   intersections,
-  playerX,
-  playerZ,
   detectRadius,
-  cellSize,
   onMovePlayer,
   sidebarOpen,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapBgRef = useRef<HTMLDivElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const linesBgRef = useRef<HTMLDivElement>(null);
+  const playerCanvasRef = useRef<HTMLCanvasElement>(null);
   const viewRef = useRef<ViewState>({ cx: 0, cz: 0, scale: 12 });
   const dragRef = useRef({ active: false, sx: 0, sy: 0, scx: 0, scz: 0 });
   const imageLoaded = useRef(false);
   const imgNaturalSize = useRef({ w: 0, h: 0, ox: 0, oz: 0, bw: 0, bh: 0 });
-  const overlayRaf = useRef(0);
   const [scaleLabel, setScaleLabel] = useState({ blocks: 500, px: 100 });
+  const [linesImageUrl, setLinesImageUrl] = useState<string | null>(null);
 
-  // Load image + map bounds
+  // Generate the static overlay image once when lines/intersections change
+  useEffect(() => {
+    const canvas = document.createElement('canvas');
+    const size = OFFCANVAS_SIZE;
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    ctx.clearRect(0, 0, size, size);
+
+    const halfWorld = OFFCANVAS_SIZE / 2;
+    const worldToCanvas = (wx: number, wz: number) => ({
+      x: halfWorld + wx,
+      y: halfWorld + wz,
+    });
+
+    // Ley lines
+    const majorSegs = segments.filter((s) => s.color === 'major');
+    ctx.beginPath();
+    for (const seg of majorSegs) {
+      const a = worldToCanvas(seg.x1, seg.z1);
+      const b = worldToCanvas(seg.x2, seg.z2);
+      ctx.moveTo(a.x, a.y);
+      ctx.lineTo(b.x, b.y);
+    }
+    ctx.strokeStyle = 'rgba(200, 160, 255, 0.45)';
+    ctx.lineWidth = 3;
+    ctx.stroke();
+
+    // Local lines
+    const localSegs = segments.filter((s) => s.color === 'local');
+    for (const seg of localSegs) {
+      if (seg.alpha < 0.02) continue;
+      const a = worldToCanvas(seg.x1, seg.z1);
+      const b = worldToCanvas(seg.x2, seg.z2);
+      ctx.beginPath();
+      ctx.moveTo(a.x, a.y);
+      ctx.lineTo(b.x, b.y);
+      ctx.strokeStyle = `rgba(100, 220, 230, ${0.3 * seg.alpha})`;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+
+    // Intersections
+    for (const int of intersections) {
+      const { x, y } = worldToCanvas(int.x, int.z);
+      ctx.beginPath();
+      ctx.arc(x, y, 6, 0, Math.PI * 2);
+      ctx.fillStyle = '#e8d8ff';
+      ctx.fill();
+    }
+
+    setLinesImageUrl(canvas.toDataURL('image/png'));
+    updateAllBackgrounds();
+    drawPlayer();
+  }, [segments, intersections]);
+
+  // Load map image
   useEffect(() => {
     const img = new Image();
     img.onload = () => {
@@ -56,206 +111,82 @@ export default function LeyMapCanvas({
           };
           viewRef.current.cx = b.ox + b.bw / 2;
           viewRef.current.cz = b.oz + b.bh / 2;
-          updateBackground();
-          drawOverlay();
+          updateAllBackgrounds();
+          drawPlayer();
         })
         .catch(() => {
-          updateBackground();
-          drawOverlay();
+          updateAllBackgrounds();
+          drawPlayer();
         });
     };
     img.src = '/duskwood-map.png';
   }, []);
 
-  // Recenter on sidebar toggle
   useEffect(() => {
     setTimeout(() => {
-      updateBackground();
-      drawOverlay();
+      updateAllBackgrounds();
+      drawPlayer();
     }, 150);
   }, [sidebarOpen]);
-
-  const worldToScreen = useCallback(
-    (wx: number, wz: number, w: number, h: number) => {
-      const { cx, cz, scale } = viewRef.current;
-      return {
-        sx: w / 2 + (wx - cx) / scale,
-        sy: h / 2 + (wz - cz) / scale,
-      };
-    },
-    []
-  );
 
   const screenToWorld = useCallback(
     (sx: number, sy: number, w: number, h: number) => {
       const { cx, cz, scale } = viewRef.current;
-      return {
-        wx: cx + (sx - w / 2) * scale,
-        wz: cz + (sy - h / 2) * scale,
-      };
+      return { wx: cx + (sx - w / 2) * scale, wz: cz + (sy - h / 2) * scale };
     },
     []
   );
 
-  const updateBackground = useCallback(() => {
-    const el = mapBgRef.current;
-    if (!el || !imageLoaded.current) return;
-    const { ox, oz, bw, bh } = imgNaturalSize.current;
+  const updateBackground = useCallback((el: HTMLDivElement | null, _iw: number, _ih: number, ox: number, oz: number, bw: number, bh: number) => {
+    if (!el) return;
     const { cx, cz, scale } = viewRef.current;
-
-    const containerW = el.clientWidth;
-    const containerH = el.clientHeight;
-
-    // Map world coords to CSS background-position
-    // The image covers world area from (ox, oz) to (ox+bw, oz+bh)
-    // We need to position it so that world point (cx, cz) is at screen center
-    const worldLeft = cx - (containerW / 2) * scale;
-    const worldTop = cz - (containerH / 2) * scale;
-
-    // Where does the image start in world space, relative to viewport left?
-    const imgScreenX = (ox - worldLeft) / scale;
-    const imgScreenY = (oz - worldTop) / scale;
-
-    // Scale the image: world bw blocks → screen pixels
-    const imgDisplayW = bw / scale;
-    const imgDisplayH = bh / scale;
-
-    el.style.backgroundSize = `${imgDisplayW}px ${imgDisplayH}px`;
-    el.style.backgroundPosition = `${imgScreenX}px ${imgScreenY}px`;
+    const cw = el.clientWidth;
+    const ch = el.clientHeight;
+    const worldLeft = cx - (cw / 2) * scale;
+    const worldTop = cz - (ch / 2) * scale;
+    const sx = (ox - worldLeft) / scale;
+    const sy = (oz - worldTop) / scale;
+    const dw = bw / scale;
+    const dh = bh / scale;
+    el.style.backgroundSize = `${dw}px ${dh}px`;
+    el.style.backgroundPosition = `${sx}px ${sy}px`;
   }, []);
 
-  const drawOverlay = useCallback(() => {
-    const canvas = canvasRef.current;
+  const updateAllBackgrounds = useCallback(() => {
+    // Map layer
+    if (imageLoaded.current) {
+      const { ox, oz, bw, bh, w, h } = imgNaturalSize.current;
+      updateBackground(mapBgRef.current, w, h, ox, oz, bw, bh);
+    }
+    // Lines layer
+    if (linesImageUrl) {
+      const halfWorld = OFFCANVAS_SIZE / 2;
+      updateBackground(linesBgRef.current, OFFCANVAS_SIZE, OFFCANVAS_SIZE, -halfWorld, -halfWorld, OFFCANVAS_SIZE, OFFCANVAS_SIZE);
+    }
+  }, [updateBackground]);
+
+  const drawPlayer = useCallback(() => {
+    const canvas = playerCanvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-
     const dpr = window.devicePixelRatio || 1;
     const W = canvas.clientWidth;
     const H = canvas.clientHeight;
     if (W === 0 || H === 0) return;
-
     canvas.width = W * dpr;
     canvas.height = H * dpr;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-
     ctx.clearRect(0, 0, W, H);
 
-    const { cx, cz, scale } = viewRef.current;
-    const worldLeft = cx - (W / 2) * scale;
-    const worldRight = cx + (W / 2) * scale;
-    const worldTop = cz - (H / 2) * scale;
-    const worldBottom = cz + (H / 2) * scale;
-
-    // Grid
-    ctx.strokeStyle = 'rgba(255,255,255,0.04)';
-    ctx.lineWidth = 1;
-    const firstGX = Math.floor(worldLeft / cellSize) * cellSize;
-    const firstGZ = Math.floor(worldTop / cellSize) * cellSize;
-    for (let gx = firstGX; gx < worldRight; gx += cellSize) {
-      const sx = Math.round(W / 2 + (gx - cx) / scale);
-      ctx.beginPath();
-      ctx.moveTo(sx, 0);
-      ctx.lineTo(sx, H);
-      ctx.stroke();
-    }
-    for (let gz = firstGZ; gz < worldBottom; gz += cellSize) {
-      const sy = Math.round(H / 2 + (gz - cz) / scale);
-      ctx.beginPath();
-      ctx.moveTo(0, sy);
-      ctx.lineTo(W, sy);
-      ctx.stroke();
-    }
-
-    // Pre-split segments by type
-    const majorSegs = segments.filter((s) => s.color === 'major');
-    const localSegs = scale < 20
-      ? segments.filter((s) => s.color === 'local' && s.alpha > 0.02)
-      : []; // skip local lines when zoomed out
-
-    // Major ley lines — purple, batched
-    ctx.beginPath();
-    for (const seg of majorSegs) {
-      const a = worldToScreen(seg.x1, seg.z1, W, H);
-      const b = worldToScreen(seg.x2, seg.z2, W, H);
-      if (Math.max(a.sx, b.sx) < -50 || Math.min(a.sx, b.sx) > W + 50) continue;
-      // Skip sub-pixel segments
-      if (Math.abs(b.sx - a.sx) < 0.5 && Math.abs(b.sy - a.sy) < 0.5) continue;
-      ctx.moveTo(a.sx, a.sy);
-      ctx.lineTo(b.sx, b.sy);
-    }
-    ctx.strokeStyle = 'rgba(180, 140, 255, 0.10)';
-    ctx.lineWidth = 8;
-    ctx.stroke();
-
-    ctx.beginPath();
-    for (const seg of majorSegs) {
-      const a = worldToScreen(seg.x1, seg.z1, W, H);
-      const b = worldToScreen(seg.x2, seg.z2, W, H);
-      if (Math.max(a.sx, b.sx) < -50 || Math.min(a.sx, b.sx) > W + 50) continue;
-      ctx.moveTo(a.sx, a.sy);
-      ctx.lineTo(b.sx, b.sy);
-    }
-    ctx.strokeStyle = 'rgba(210, 170, 255, 0.45)';
-    ctx.lineWidth = 2.5;
-    ctx.stroke();
-
-    // Local ley lines — cyan, unbatched due to per-segment alpha
-    for (const seg of localSegs) {
-      const a = worldToScreen(seg.x1, seg.z1, W, H);
-      const b = worldToScreen(seg.x2, seg.z2, W, H);
-      if (Math.max(a.sx, b.sx) < -50 || Math.min(a.sx, b.sx) > W + 50) continue;
-      if (Math.abs(b.sx - a.sx) < 0.5 && Math.abs(b.sy - a.sy) < 0.5) continue;
-
-      const aGlow = 0.06 * seg.alpha;
-      const aCore = 0.25 * seg.alpha;
-      if (aCore < 0.01) continue;
-
-      ctx.beginPath();
-      ctx.moveTo(a.sx, a.sy);
-      ctx.lineTo(b.sx, b.sy);
-      ctx.strokeStyle = `rgba(80, 200, 210, ${aGlow})`;
-      ctx.lineWidth = 5;
-      ctx.stroke();
-
-      ctx.beginPath();
-      ctx.moveTo(a.sx, a.sy);
-      ctx.lineTo(b.sx, b.sy);
-      ctx.strokeStyle = `rgba(100, 220, 230, ${aCore})`;
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
-    }
-
-    // Intersections — each dot at exact crossing of two curves
-    for (const int of intersections) {
-      const { sx, sy } = worldToScreen(int.x, int.z, W, H);
-      if (sx < -20 || sx > W + 20 || sy < -20 || sy > H + 20) continue;
-
-      const glowR = 12;
-      const g = ctx.createRadialGradient(sx, sy, 0, sx, sy, glowR);
-      g.addColorStop(0, 'rgba(240, 200, 255, 0.9)');
-      g.addColorStop(0.3, 'rgba(180, 140, 250, 0.5)');
-      g.addColorStop(1, 'rgba(80, 40, 150, 0)');
-      ctx.beginPath();
-      ctx.arc(sx, sy, glowR, 0, Math.PI * 2);
-      ctx.fillStyle = g;
-      ctx.fill();
-
-      ctx.beginPath();
-      ctx.arc(sx, sy, 4, 0, Math.PI * 2);
-      ctx.fillStyle = '#f8f0ff';
-      ctx.fill();
-      ctx.strokeStyle = '#d0c0ff';
-      ctx.lineWidth = 1;
-      ctx.stroke();
-    }
-
-    // Player
-    const ps = worldToScreen(playerX, playerZ, W, H);
+    const { scale } = viewRef.current;
+    const cx = W / 2;
+    const cy = H / 2;
     const rPx = detectRadius / scale;
+
     if (rPx > 1 && rPx < W * 2) {
       ctx.beginPath();
-      ctx.arc(ps.sx, ps.sy, rPx, 0, Math.PI * 2);
+      ctx.arc(cx, cy, rPx, 0, Math.PI * 2);
       ctx.strokeStyle = 'rgba(200, 160, 255, 0.35)';
       ctx.lineWidth = 2;
       ctx.setLineDash([6, 10]);
@@ -264,124 +195,79 @@ export default function LeyMapCanvas({
     }
 
     ctx.beginPath();
-    ctx.arc(ps.sx, ps.sy, 8, 0, Math.PI * 2);
+    ctx.arc(cx, cy, 8, 0, Math.PI * 2);
     ctx.fillStyle = '#e8d0ff';
     ctx.fill();
     ctx.strokeStyle = '#c0a0ff';
     ctx.lineWidth = 2;
     ctx.stroke();
-
     ctx.beginPath();
-    ctx.arc(ps.sx, ps.sy, 2.5, 0, Math.PI * 2);
+    ctx.arc(cx, cy, 2.5, 0, Math.PI * 2);
     ctx.fillStyle = '#ffffff';
     ctx.fill();
-
     ctx.beginPath();
-    ctx.moveTo(ps.sx - 14, ps.sy);
-    ctx.lineTo(ps.sx + 14, ps.sy);
-    ctx.moveTo(ps.sx, ps.sy - 14);
-    ctx.lineTo(ps.sx, ps.sy + 14);
+    ctx.moveTo(cx - 14, cy);
+    ctx.lineTo(cx + 14, cy);
+    ctx.moveTo(cx, cy - 14);
+    ctx.lineTo(cx, cy + 14);
     ctx.strokeStyle = '#e8d0ff';
     ctx.lineWidth = 1;
     ctx.stroke();
-  }, [segments, intersections, playerX, playerZ, detectRadius, cellSize, worldToScreen]);
+  }, [detectRadius]);
 
-  // Schedule a batched redraw — at most once per frame
-  const scheduleDraw = useCallback(() => {
-    if (overlayRaf.current) return;
-    overlayRaf.current = requestAnimationFrame(() => {
-      overlayRaf.current = 0;
-      updateBackground();
-      drawOverlay();
-      // Update scale bar
-      const s = viewRef.current.scale;
-      const containerW = containerRef.current?.clientWidth ?? 800;
-      const maxPx = Math.min(200, containerW * 0.35);
-      const niceBlocks = [50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000, 100000, 200000];
-      let best = niceBlocks[0];
-      for (const b of niceBlocks) {
-        if (b / s <= maxPx) best = b;
-        else break;
-      }
-      setScaleLabel({ blocks: best, px: Math.round(best / s) });
-    });
-  }, [updateBackground, drawOverlay]);
+  const syncView = useCallback(() => {
+    updateAllBackgrounds();
+    drawPlayer();
+    const s = viewRef.current.scale;
+    const cw = containerRef.current?.clientWidth ?? 800;
+    const maxPx = Math.min(200, cw * 0.35);
+    const nice = [50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000, 100000, 200000];
+    let best = nice[0];
+    for (const b of nice) { if (b / s <= maxPx) best = b; else break; }
+    setScaleLabel({ blocks: best, px: Math.round(best / s) });
+  }, [updateAllBackgrounds, drawPlayer]);
 
-  // ResizeObserver
-  useEffect(() => {
-    const ro = new ResizeObserver(() => scheduleDraw());
-    if (containerRef.current) ro.observe(containerRef.current);
-    return () => ro.disconnect();
-  }, [scheduleDraw]);
-
-  // Mouse
+  // Mouse handlers
   const onMouseDown = (e: React.MouseEvent) => {
-    dragRef.current = {
-      active: true,
-      sx: e.clientX,
-      sy: e.clientY,
-      scx: viewRef.current.cx,
-      scz: viewRef.current.cz,
-    };
+    dragRef.current = { active: true, sx: e.clientX, sy: e.clientY, scx: viewRef.current.cx, scz: viewRef.current.cz };
   };
 
   useEffect(() => {
     const onMove = (e: MouseEvent) => {
       if (!dragRef.current.active) return;
       const scale = viewRef.current.scale;
-      viewRef.current.cx =
-        dragRef.current.scx - (e.clientX - dragRef.current.sx) * scale;
-      viewRef.current.cz =
-        dragRef.current.scz - (e.clientY - dragRef.current.sy) * scale;
-      scheduleDraw();
+      viewRef.current.cx = dragRef.current.scx - (e.clientX - dragRef.current.sx) * scale;
+      viewRef.current.cz = dragRef.current.scz - (e.clientY - dragRef.current.sy) * scale;
+      syncView();
     };
     const onUp = (e: MouseEvent) => {
       if (!dragRef.current.active) return;
       const dx = e.clientX - dragRef.current.sx;
       const dy = e.clientY - dragRef.current.sy;
       dragRef.current.active = false;
-
       if (Math.abs(dx) < 3 && Math.abs(dy) < 3 && containerRef.current) {
         const rect = containerRef.current.getBoundingClientRect();
-        const { wx, wz } = screenToWorld(
-          e.clientX - rect.left,
-          e.clientY - rect.top,
-          rect.width,
-          rect.height
-        );
+        const { wx, wz } = screenToWorld(e.clientX - rect.left, e.clientY - rect.top, rect.width, rect.height);
         onMovePlayer(Math.round(wx), Math.round(wz));
       }
-      // Redraw after drag ends
-      scheduleDraw();
     };
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
-    return () => {
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
-    };
-  }, [scheduleDraw, screenToWorld, onMovePlayer]);
+    return () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
+  }, [syncView, screenToWorld, onMovePlayer]);
 
-  const onWheel = useCallback(
-    (e: WheelEvent) => {
-      e.preventDefault();
-      if (!containerRef.current) return;
-      const rect = containerRef.current.getBoundingClientRect();
-      const mx = e.clientX - rect.left;
-      const my = e.clientY - rect.top;
-      const before = screenToWorld(mx, my, rect.width, rect.height);
-      const factor = e.deltaY > 0 ? 1.2 : 1 / 1.2;
-      viewRef.current.scale = Math.max(
-        1,
-        Math.min(300, viewRef.current.scale * factor)
-      );
-      const after = screenToWorld(mx, my, rect.width, rect.height);
-      viewRef.current.cx += before.wx - after.wx;
-      viewRef.current.cz += before.wz - after.wz;
-      scheduleDraw();
-    },
-    [screenToWorld, scheduleDraw]
-  );
+  const onWheel = useCallback((e: WheelEvent) => {
+    e.preventDefault();
+    if (!containerRef.current) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    const before = screenToWorld(e.clientX - rect.left, e.clientY - rect.top, rect.width, rect.height);
+    const factor = e.deltaY > 0 ? 1.2 : 1 / 1.2;
+    viewRef.current.scale = Math.max(1, Math.min(300, viewRef.current.scale * factor));
+    const after = screenToWorld(e.clientX - rect.left, e.clientY - rect.top, rect.width, rect.height);
+    viewRef.current.cx += before.wx - after.wx;
+    viewRef.current.cz += before.wz - after.wz;
+    syncView();
+  }, [screenToWorld, syncView]);
 
   useEffect(() => {
     const el = containerRef.current;
@@ -394,76 +280,23 @@ export default function LeyMapCanvas({
     <div
       ref={containerRef}
       style={{
-        flex: '1 1 auto',
-        minWidth: 0,
-        position: 'relative',
-        overflow: 'hidden',
-        cursor: 'crosshair',
-        background: '#06060e',
+        flex: '1 1 auto', minWidth: 0, position: 'relative', overflow: 'hidden',
+        cursor: 'crosshair', background: '#06060e',
       }}
       onMouseDown={onMouseDown}
     >
-      {/* Map background via CSS — GPU accelerated, no canvas drawImage */}
-      <div
-        ref={mapBgRef}
-        style={{
-          position: 'absolute',
-          inset: 0,
-          backgroundImage: 'url(/duskwood-map.png)',
-          backgroundRepeat: 'no-repeat',
-          imageRendering: 'pixelated',
-          pointerEvents: 'none',
-        }}
-      />
-      {/* Overlay canvas — transparent, only ley lines + player */}
-      <canvas
-        ref={canvasRef}
-        style={{
-          position: 'absolute',
-          inset: 0,
-          display: 'block',
-          width: '100%',
-          height: '100%',
-          pointerEvents: 'none',
-        }}
-      />
+      {/* Map background */}
+      <div ref={mapBgRef} style={{ position: 'absolute', inset: 0, backgroundImage: 'url(/duskwood-map.png)', backgroundRepeat: 'no-repeat', imageRendering: 'pixelated', pointerEvents: 'none' }} />
+      {/* Ley lines overlay — pre-rendered, CSS-panned */}
+      {linesImageUrl && (
+        <div ref={linesBgRef} style={{ position: 'absolute', inset: 0, backgroundImage: `url(${linesImageUrl})`, backgroundRepeat: 'no-repeat', imageRendering: 'auto', pointerEvents: 'none' }} />
+      )}
+      {/* Player dot */}
+      <canvas ref={playerCanvasRef} style={{ position: 'absolute', inset: 0, display: 'block', width: '100%', height: '100%', pointerEvents: 'none' }} />
       {/* Scale bar */}
-      <div
-        style={{
-          position: 'absolute',
-          bottom: 16,
-          left: '50%',
-          transform: 'translateX(-50%)',
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          gap: 2,
-          pointerEvents: 'none',
-          zIndex: 5,
-        }}
-      >
-        <span
-          style={{
-            color: '#c8c8e0',
-            fontSize: 11,
-            fontFamily: 'monospace',
-            fontWeight: 500,
-            textShadow: '0 1px 4px rgba(0,0,0,0.8)',
-          }}
-        >
-          {scaleLabel.blocks.toLocaleString()} blocks
-        </span>
-        <div
-          style={{
-            width: scaleLabel.px,
-            height: 6,
-            borderRadius: 3,
-            background:
-              'linear-gradient(90deg, rgba(180,150,255,0.4), rgba(180,150,255,0.7), rgba(180,150,255,0.4))',
-            boxShadow: '0 1px 6px rgba(0,0,0,0.5)',
-            transition: 'width 0.12s ease',
-          }}
-        />
+      <div style={{ position: 'absolute', bottom: 16, left: '50%', transform: 'translateX(-50%)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, pointerEvents: 'none', zIndex: 5 }}>
+        <span style={{ color: '#c8c8e0', fontSize: 11, fontFamily: 'monospace', fontWeight: 500, textShadow: '0 1px 4px rgba(0,0,0,0.8)' }}>{scaleLabel.blocks.toLocaleString()} blocks</span>
+        <div style={{ width: scaleLabel.px, height: 6, borderRadius: 3, background: 'linear-gradient(90deg, rgba(180,150,255,0.4), rgba(180,150,255,0.7), rgba(180,150,255,0.4))', boxShadow: '0 1px 6px rgba(0,0,0,0.5)', transition: 'width 0.12s ease' }} />
       </div>
     </div>
   );
