@@ -161,6 +161,39 @@ export default function LeyMapCanvas({ segments, intersections, playerX, playerZ
   const onMouseDown = (e: React.MouseEvent) => {
     dragRef.current = { active: true, sx: e.clientX, sy: e.clientY, scx: viewRef.current.cx, scz: viewRef.current.cz };
   };
+
+  // Touch pinch-zoom
+  const pinchRef = useRef<{ dist: number; scale: number } | null>(null);
+
+  useEffect(() => {
+    const ts = (e: TouchEvent) => {
+      if (e.touches.length === 2) {
+        const dx = e.touches[0].clientX - e.touches[1].clientX;
+        const dy = e.touches[0].clientY - e.touches[1].clientY;
+        pinchRef.current = { dist: Math.sqrt(dx * dx + dy * dy), scale: viewRef.current.scale };
+        dragRef.current.active = false;
+      } else if (e.touches.length === 1) {
+        const t = e.touches[0];
+        dragRef.current = { active: true, sx: t.clientX, sy: t.clientY, scx: viewRef.current.cx, scz: viewRef.current.cz };
+      }
+    };
+    const tm = (e: TouchEvent) => {
+      if (e.touches.length !== 2 || !pinchRef.current) return;
+      e.preventDefault();
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      const newDist = Math.sqrt(dx * dx + dy * dy);
+      const ratio = pinchRef.current.dist / Math.max(1, newDist);
+      viewRef.current.scale = Math.max(1, Math.min(300, pinchRef.current.scale * (1 / ratio)));
+      scheduleDraw();
+    };
+    const te = () => { pinchRef.current = null; };
+    window.addEventListener('touchstart', ts, { passive: false });
+    window.addEventListener('touchmove', tm, { passive: false });
+    window.addEventListener('touchend', te);
+    return () => { window.removeEventListener('touchstart', ts); window.removeEventListener('touchmove', tm); window.removeEventListener('touchend', te); };
+  }, [scheduleDraw]);
+
   useEffect(() => {
     const mv = (e: MouseEvent) => {
       if (!dragRef.current.active) return;
@@ -183,6 +216,36 @@ export default function LeyMapCanvas({ segments, intersections, playerX, playerZ
     return () => { window.removeEventListener('mousemove', mv); window.removeEventListener('mouseup', up); };
   }, [scheduleDraw, stow, onMovePlayer]);
 
+  // Touch events for mobile
+  useEffect(() => {
+    const tm = (e: TouchEvent) => {
+      if (!dragRef.current.active || e.touches.length !== 1) return;
+      e.preventDefault();
+      const t = e.touches[0];
+      const s = viewRef.current.scale;
+      viewRef.current.cx = dragRef.current.scx - (t.clientX - dragRef.current.sx) * s;
+      viewRef.current.cz = dragRef.current.scz - (t.clientY - dragRef.current.sy) * s;
+      scheduleDraw();
+    };
+    const tu = (e: TouchEvent) => {
+      if (!dragRef.current.active) return;
+      const dx = (e.changedTouches[0]?.clientX ?? 0) - dragRef.current.sx;
+      const dy = (e.changedTouches[0]?.clientY ?? 0) - dragRef.current.sy;
+      dragRef.current.active = false;
+      if (Math.abs(dx) < 10 && Math.abs(dy) < 10 && containerRef.current) {
+        const r = containerRef.current.getBoundingClientRect();
+        const t = e.changedTouches[0];
+        if (t) {
+          const { wx, wz } = stow(t.clientX - r.left, t.clientY - r.top, r.width, r.height);
+          onMovePlayer(Math.round(wx), Math.round(wz));
+        }
+      }
+    };
+    window.addEventListener('touchmove', tm, { passive: false });
+    window.addEventListener('touchend', tu);
+    return () => { window.removeEventListener('touchmove', tm); window.removeEventListener('touchend', tu); };
+  }, [scheduleDraw, stow, onMovePlayer]);
+
   const onWheel = useCallback((e: WheelEvent) => {
     e.preventDefault();
     if (!containerRef.current) return;
@@ -203,7 +266,7 @@ export default function LeyMapCanvas({ segments, intersections, playerX, playerZ
   }, [onWheel]);
 
   return (
-    <div ref={containerRef} style={{ flex: '1 1 auto', minWidth: 0, position: 'relative', overflow: 'hidden', cursor: 'crosshair', background: '#020208' }} onMouseDown={onMouseDown}>
+    <div ref={containerRef} style={{ flex: '1 1 auto', minWidth: 0, position: 'relative', overflow: 'hidden', cursor: 'crosshair', background: '#020208', touchAction: 'none' }} onMouseDown={onMouseDown}>
       <div ref={mapBgRef} style={{ position: 'absolute', inset: 0, backgroundImage: 'url(/duskwood-map.png)', backgroundRepeat: 'no-repeat', imageRendering: 'pixelated', pointerEvents: 'none', filter: 'brightness(0.7)' }} />
       <canvas ref={overlayRef} style={{ position: 'absolute', inset: 0, display: 'block', width: '100%', height: '100%', pointerEvents: 'none' }} />
       <div style={{ position: 'absolute', bottom: 16, left: '50%', transform: 'translateX(-50%)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, pointerEvents: 'none', zIndex: 5 }}>
