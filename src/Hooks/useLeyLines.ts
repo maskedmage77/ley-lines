@@ -314,20 +314,19 @@ export function useLeyLines(params: LeyParams) {
   }, [majorCurves, params.seed, params.cellSize, worldExtent]);
 
   // Signal: major lines up to 15 each, local lines up to 7 each, local taper
-  const { signal, nearestDist, inRange } = useMemo(() => {
-    let totalSignal = 0;
+  const { majorSignal, localSignal, signal, nearestDist, inRange } = useMemo(() => {
+    let major = 0;
+    let local = 0;
     let nearestLine = Infinity;
 
-    // Major curves
     for (const c of majorCurves) {
       const dist = distanceToCurve(c, playerX, playerZ);
       if (dist < nearestLine) nearestLine = dist;
       if (dist < params.detectRadius) {
-        totalSignal += Math.floor(15 * (1 - dist / params.detectRadius));
+        major += Math.floor(15 * (1 - dist / params.detectRadius));
       }
     }
 
-    // Local lines — regenerate local set for signal calc near player
     const nearbyLocalLines = generateLocalLines(
       params.seed,
       playerX - params.detectRadius,
@@ -340,20 +339,15 @@ export function useLeyLines(params: LeyParams) {
       const dist = distanceToLocalLine(line, playerX, playerZ);
       if (dist < nearestLine) nearestLine = dist;
       if (dist < params.detectRadius) {
-        // Half strength: up to 7
-        let contribution = Math.floor(7 * (1 - dist / params.detectRadius));
-
-        // Taper at line ends: find t along the line closest to player
+        let c = Math.floor(7 * (1 - dist / params.detectRadius));
         const bestT = findClosestT(line, playerX, playerZ);
         const taperStart = Math.min(1, bestT / 0.15);
         const taperEnd = Math.min(1, (1 - bestT) / 0.15);
-        contribution = Math.floor(contribution * Math.min(taperStart, taperEnd));
-
-        totalSignal += contribution;
+        c = Math.floor(c * Math.min(taperStart, taperEnd));
+        local += c;
       }
     }
 
-    // Count intersections in range
     let inRange = 0;
     for (const int of intersections) {
       const dx = playerX - int.x;
@@ -362,7 +356,9 @@ export function useLeyLines(params: LeyParams) {
     }
 
     return {
-      signal: Math.min(100, totalSignal),
+      majorSignal: major,
+      localSignal: local,
+      signal: Math.min(100, major + local),
       nearestDist: nearestLine,
       inRange,
     };
@@ -374,6 +370,8 @@ export function useLeyLines(params: LeyParams) {
     playerX,
     playerZ,
     signal,
+    majorSignal,
+    localSignal,
     nearestDist,
     inRange,
     globalCurveCount: majorCurves.length,

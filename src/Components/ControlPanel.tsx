@@ -25,6 +25,8 @@ import type { LeyParams } from '../Types';
 interface Props {
   params: LeyParams;
   onChange: (params: LeyParams) => void;
+  majorSignal: number;
+  localSignal: number;
   signal: number;
   nearestDist: number;
   inRange: number;
@@ -48,6 +50,8 @@ function StatRow({ label, value }: { label: string; value: string }) {
 export default function ControlPanel({
   params,
   onChange,
+  majorSignal,
+  localSignal,
   signal,
   nearestDist,
   inRange,
@@ -130,6 +134,14 @@ export default function ControlPanel({
                     }}
                   />
                 </div>
+                <Group justify="space-between">
+                  <Group gap={4}><div style={{ width: 8, height: 8, borderRadius: 2, background: '#b8a0ff' }} /><Text size="xs" c="dimmed">Major</Text></Group>
+                  <Text size="xs" fw={500}>{majorSignal}</Text>
+                </Group>
+                <Group justify="space-between">
+                  <Group gap={4}><div style={{ width: 8, height: 8, borderRadius: 2, background: '#64d2d8' }} /><Text size="xs" c="dimmed">Local</Text></Group>
+                  <Text size="xs" fw={500}>{localSignal}</Text>
+                </Group>
                 <StatRow
                   label="Nearest line"
                   value={nearestDist < Infinity ? `${Math.round(nearestDist).toLocaleString()} blk` : '—'}

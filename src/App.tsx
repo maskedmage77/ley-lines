@@ -32,6 +32,8 @@ export default function App() {
     playerX,
     playerZ,
     signal,
+    majorSignal,
+    localSignal,
     nearestDist,
     inRange,
     globalCurveCount,
@@ -44,6 +46,8 @@ export default function App() {
         <ControlPanel
           params={params}
           onChange={setParams}
+          majorSignal={majorSignal}
+          localSignal={localSignal}
           signal={signal}
           nearestDist={nearestDist}
           inRange={inRange}
