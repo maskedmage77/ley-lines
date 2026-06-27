@@ -115,11 +115,11 @@ export default function PixiOverlay({ segments, intersections, playerX, playerZ,
 
   // ── Sync view transform ────────────────────────
   const syncView = useCallback(() => {
-    if (!worldRef.current || !playerRef.current || !appRef.current) return;
+    if (!worldRef.current || !playerRef.current || !appRef.current?.renderer) return;
     const { cx, cz, scale } = viewRef.current;
     const app = appRef.current;
-    const W = app.screen.width;
-    const H = app.screen.height;
+    const W = app.renderer.width;
+    const H = app.renderer.height;
 
     // World
     worldRef.current.x = W / 2 - cx / scale;
@@ -176,8 +176,8 @@ export default function PixiOverlay({ segments, intersections, playerX, playerZ,
   useEffect(() => {
     if (!appRef.current) return;
     const ro = new ResizeObserver(() => {
-      if (appRef.current && containerRef.current) {
-        const { width, height } = containerRef.current.getBoundingClientRect();
+      if (appRef.current?.renderer) {
+        const { width, height } = containerRef.current!.getBoundingClientRect();
         appRef.current.renderer.resize(width, height);
       }
       syncView();
