@@ -176,7 +176,13 @@ export default function PixiOverlay({ segments, intersections, playerX, playerZ,
   // Resize
   useEffect(() => {
     if (!appRef.current) return;
-    const ro = new ResizeObserver(() => { appRef.current!.resize(); syncView(); });
+    const ro = new ResizeObserver(() => {
+      if (appRef.current && containerRef.current) {
+        const { width, height } = containerRef.current.getBoundingClientRect();
+        appRef.current.renderer.resize(width, height);
+      }
+      syncView();
+    });
     if (containerRef.current) ro.observe(containerRef.current);
     return () => ro.disconnect();
   }, [ready, syncView]);
