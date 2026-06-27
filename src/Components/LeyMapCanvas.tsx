@@ -35,6 +35,8 @@ export default function LeyMapCanvas({
   const dragRef = useRef({ active: false, sx: 0, sy: 0, scx: 0, scz: 0 });
   const imageLoaded = useRef(false);
   const imgNaturalSize = useRef({ w: 0, h: 0, ox: 0, oz: 0, bw: 0, bh: 0 });
+  const overlayRaf = useRef(0);
+  const dragging = useRef(false);
   const [scaleLabel, setScaleLabel] = useState({ blocks: 500, px: 100 });
 
   // Load image + map bounds
@@ -166,49 +168,61 @@ export default function LeyMapCanvas({
       ctx.stroke();
     }
 
-    // Major ley lines — purple
+    // Pre-split segments by type
+    const majorSegs = segments.filter((s) => s.color === 'major');
+    const localSegs = scale < 20
+      ? segments.filter((s) => s.color === 'local' && s.alpha > 0.02)
+      : []; // skip local lines when zoomed out
+
+    // Major ley lines — purple, batched
     ctx.beginPath();
-    for (const seg of segments.filter((s) => s.color === 'major')) {
+    for (const seg of majorSegs) {
       const a = worldToScreen(seg.x1, seg.z1, W, H);
       const b = worldToScreen(seg.x2, seg.z2, W, H);
       if (Math.max(a.sx, b.sx) < -50 || Math.min(a.sx, b.sx) > W + 50) continue;
+      // Skip sub-pixel segments
+      if (Math.abs(b.sx - a.sx) < 0.5 && Math.abs(b.sy - a.sy) < 0.5) continue;
       ctx.moveTo(a.sx, a.sy);
       ctx.lineTo(b.sx, b.sy);
     }
-    ctx.strokeStyle = 'rgba(180, 140, 255, 0.08)';
+    ctx.strokeStyle = 'rgba(180, 140, 255, 0.10)';
     ctx.lineWidth = 8;
     ctx.stroke();
 
     ctx.beginPath();
-    for (const seg of segments.filter((s) => s.color === 'major')) {
+    for (const seg of majorSegs) {
       const a = worldToScreen(seg.x1, seg.z1, W, H);
       const b = worldToScreen(seg.x2, seg.z2, W, H);
       if (Math.max(a.sx, b.sx) < -50 || Math.min(a.sx, b.sx) > W + 50) continue;
       ctx.moveTo(a.sx, a.sy);
       ctx.lineTo(b.sx, b.sy);
     }
-    ctx.strokeStyle = 'rgba(210, 170, 255, 0.4)';
+    ctx.strokeStyle = 'rgba(210, 170, 255, 0.45)';
     ctx.lineWidth = 2.5;
     ctx.stroke();
 
-    // Local ley lines — cyan, with per-segment alpha taper
-    const localSegs = segments.filter((s) => s.color === 'local');
+    // Local ley lines — cyan, unbatched due to per-segment alpha
     for (const seg of localSegs) {
       const a = worldToScreen(seg.x1, seg.z1, W, H);
       const b = worldToScreen(seg.x2, seg.z2, W, H);
       if (Math.max(a.sx, b.sx) < -50 || Math.min(a.sx, b.sx) > W + 50) continue;
+      if (Math.abs(b.sx - a.sx) < 0.5 && Math.abs(b.sy - a.sy) < 0.5) continue;
+
+      const aGlow = 0.06 * seg.alpha;
+      const aCore = 0.25 * seg.alpha;
+      if (aCore < 0.01) continue;
 
       ctx.beginPath();
       ctx.moveTo(a.sx, a.sy);
       ctx.lineTo(b.sx, b.sy);
-      ctx.strokeStyle = `rgba(80, 200, 210, ${0.06 * seg.alpha})`;
+      ctx.strokeStyle = `rgba(80, 200, 210, ${aGlow})`;
       ctx.lineWidth = 5;
       ctx.stroke();
 
       ctx.beginPath();
       ctx.moveTo(a.sx, a.sy);
       ctx.lineTo(b.sx, b.sy);
-      ctx.strokeStyle = `rgba(100, 220, 230, ${0.25 * seg.alpha})`;
+      ctx.strokeStyle = `rgba(100, 220, 230, ${aCore})`;
       ctx.lineWidth = 1.5;
       ctx.stroke();
     }
@@ -273,32 +287,87 @@ export default function LeyMapCanvas({
     ctx.stroke();
   }, [segments, intersections, playerX, playerZ, detectRadius, cellSize, worldToScreen]);
 
-  // Sync background + overlay on view change
-  const syncView = useCallback(() => {
-    updateBackground();
-    drawOverlay();
+  // Lightweight draw: only player + detection ring during drag
+  const drawPlayerOnly = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    const dpr = window.devicePixelRatio || 1;
+    const W = canvas.clientWidth;
+    const H = canvas.clientHeight;
+    if (W === 0 || H === 0) return;
+    canvas.width = W * dpr;
+    canvas.height = H * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, W, H);
 
-    // Update scale bar
-    const scale = viewRef.current.scale;
-    const containerW = containerRef.current?.clientWidth ?? 800;
-    const maxPx = Math.min(200, containerW * 0.35);
-    // Pick a nice round number of blocks
-    const niceBlocks = [50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000];
-    let best = niceBlocks[0];
-    for (const b of niceBlocks) {
-      if (b / scale <= maxPx) best = b;
-      else break;
+    const { scale } = viewRef.current;
+    const ps = worldToScreen(playerX, playerZ, W, H);
+    const rPx = detectRadius / scale;
+
+    if (rPx > 1 && rPx < W * 2) {
+      ctx.beginPath();
+      ctx.arc(ps.sx, ps.sy, rPx, 0, Math.PI * 2);
+      ctx.strokeStyle = 'rgba(200, 160, 255, 0.35)';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([6, 10]);
+      ctx.stroke();
+      ctx.setLineDash([]);
     }
-    const px = Math.round(best / scale);
-    setScaleLabel({ blocks: best, px });
-  }, [updateBackground, drawOverlay]);
+
+    ctx.beginPath();
+    ctx.arc(ps.sx, ps.sy, 8, 0, Math.PI * 2);
+    ctx.fillStyle = '#e8d0ff';
+    ctx.fill();
+    ctx.strokeStyle = '#c0a0ff';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(ps.sx, ps.sy, 2.5, 0, Math.PI * 2);
+    ctx.fillStyle = '#ffffff';
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(ps.sx - 14, ps.sy);
+    ctx.lineTo(ps.sx + 14, ps.sy);
+    ctx.moveTo(ps.sx, ps.sy - 14);
+    ctx.lineTo(ps.sx, ps.sy + 14);
+    ctx.strokeStyle = '#e8d0ff';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  }, [playerX, playerZ, detectRadius, worldToScreen]);
+
+  // Schedule a batched redraw — at most once per frame
+  const scheduleDraw = useCallback(() => {
+    if (overlayRaf.current) return;
+    overlayRaf.current = requestAnimationFrame(() => {
+      overlayRaf.current = 0;
+      updateBackground();
+      if (dragging.current) {
+        drawPlayerOnly();
+      } else {
+        drawOverlay();
+      }
+      // Update scale bar
+      const s = viewRef.current.scale;
+      const containerW = containerRef.current?.clientWidth ?? 800;
+      const maxPx = Math.min(200, containerW * 0.35);
+      const niceBlocks = [50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000, 100000, 200000];
+      let best = niceBlocks[0];
+      for (const b of niceBlocks) {
+        if (b / s <= maxPx) best = b;
+        else break;
+      }
+      setScaleLabel({ blocks: best, px: Math.round(best / s) });
+    });
+  }, [updateBackground, drawOverlay, drawPlayerOnly]);
 
   // ResizeObserver
   useEffect(() => {
-    const ro = new ResizeObserver(() => syncView());
+    const ro = new ResizeObserver(() => scheduleDraw());
     if (containerRef.current) ro.observe(containerRef.current);
     return () => ro.disconnect();
-  }, [syncView]);
+  }, [scheduleDraw]);
 
   // Mouse
   const onMouseDown = (e: React.MouseEvent) => {
@@ -314,18 +383,19 @@ export default function LeyMapCanvas({
   useEffect(() => {
     const onMove = (e: MouseEvent) => {
       if (!dragRef.current.active) return;
+      dragging.current = true;
       const scale = viewRef.current.scale;
       viewRef.current.cx =
         dragRef.current.scx - (e.clientX - dragRef.current.sx) * scale;
       viewRef.current.cz =
         dragRef.current.scz - (e.clientY - dragRef.current.sy) * scale;
-      syncView();
+      scheduleDraw();
     };
     const onUp = (e: MouseEvent) => {
       if (!dragRef.current.active) return;
       const dx = e.clientX - dragRef.current.sx;
       const dy = e.clientY - dragRef.current.sy;
-      dragRef.current.active = false;
+      dragging.current = false;
 
       if (Math.abs(dx) < 3 && Math.abs(dy) < 3 && containerRef.current) {
         const rect = containerRef.current.getBoundingClientRect();
@@ -337,7 +407,9 @@ export default function LeyMapCanvas({
         );
         onMovePlayer(Math.round(wx), Math.round(wz));
       }
-      syncView();
+      // Force full redraw after drag ends
+      updateBackground();
+      drawOverlay();
     };
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
@@ -345,7 +417,7 @@ export default function LeyMapCanvas({
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
     };
-  }, [syncView, screenToWorld, onMovePlayer]);
+  }, [scheduleDraw, screenToWorld, onMovePlayer]);
 
   const onWheel = useCallback(
     (e: WheelEvent) => {
@@ -363,9 +435,9 @@ export default function LeyMapCanvas({
       const after = screenToWorld(mx, my, rect.width, rect.height);
       viewRef.current.cx += before.wx - after.wx;
       viewRef.current.cz += before.wz - after.wz;
-      syncView();
+      scheduleDraw();
     },
-    [screenToWorld, syncView]
+    [screenToWorld, scheduleDraw]
   );
 
   useEffect(() => {
@@ -396,7 +468,7 @@ export default function LeyMapCanvas({
           inset: 0,
           backgroundImage: 'url(/duskwood-map.png)',
           backgroundRepeat: 'no-repeat',
-          imageRendering: 'auto',
+          imageRendering: 'pixelated',
           pointerEvents: 'none',
         }}
       />
