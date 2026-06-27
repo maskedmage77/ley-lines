@@ -4,6 +4,8 @@ import type { PolySegment, LeyIntersection } from '../Types';
 interface Props {
   segments: PolySegment[];
   intersections: LeyIntersection[];
+  playerX: number;
+  playerZ: number;
   detectRadius: number;
   onMovePlayer: (x: number, z: number) => void;
   sidebarOpen: boolean;
@@ -20,6 +22,8 @@ const OFFCANVAS_SIZE = 4096; // world extent in blocks that the overlay image co
 export default function LeyMapCanvas({
   segments,
   intersections,
+  playerX,
+  playerZ,
   detectRadius,
   onMovePlayer,
   sidebarOpen,
@@ -33,7 +37,8 @@ export default function LeyMapCanvas({
   const imageLoaded = useRef(false);
   const imgNaturalSize = useRef({ w: 0, h: 0, ox: 0, oz: 0, bw: 0, bh: 0 });
   const [scaleLabel, setScaleLabel] = useState({ blocks: 500, px: 100 });
-  const [linesImageUrl, setLinesImageUrl] = useState<string | null>(null);
+  const [linesReady, setLinesReady] = useState(false);
+  const linesUrlRef = useRef<string | null>(null);
 
   // Generate the static overlay image once when lines/intersections change
   useEffect(() => {
@@ -88,7 +93,8 @@ export default function LeyMapCanvas({
       ctx.fill();
     }
 
-    setLinesImageUrl(canvas.toDataURL('image/png'));
+    linesUrlRef.current = canvas.toDataURL('image/png');
+    setLinesReady(true);
     updateAllBackgrounds();
     drawPlayer();
   }, [segments, intersections]);
@@ -159,7 +165,7 @@ export default function LeyMapCanvas({
       updateBackground(mapBgRef.current, w, h, ox, oz, bw, bh);
     }
     // Lines layer
-    if (linesImageUrl) {
+    if (linesUrlRef.current) {
       const halfWorld = OFFCANVAS_SIZE / 2;
       updateBackground(linesBgRef.current, OFFCANVAS_SIZE, OFFCANVAS_SIZE, -halfWorld, -halfWorld, OFFCANVAS_SIZE, OFFCANVAS_SIZE);
     }
@@ -179,14 +185,14 @@ export default function LeyMapCanvas({
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, W, H);
 
-    const { scale } = viewRef.current;
-    const cx = W / 2;
-    const cy = H / 2;
+    const { cx, cz, scale } = viewRef.current;
+    const sx = W / 2 + (playerX - cx) / scale;
+    const sy = H / 2 + (playerZ - cz) / scale;
     const rPx = detectRadius / scale;
 
     if (rPx > 1 && rPx < W * 2) {
       ctx.beginPath();
-      ctx.arc(cx, cy, rPx, 0, Math.PI * 2);
+      ctx.arc(sx, sy, rPx, 0, Math.PI * 2);
       ctx.strokeStyle = 'rgba(200, 160, 255, 0.35)';
       ctx.lineWidth = 2;
       ctx.setLineDash([6, 10]);
@@ -195,25 +201,25 @@ export default function LeyMapCanvas({
     }
 
     ctx.beginPath();
-    ctx.arc(cx, cy, 8, 0, Math.PI * 2);
+    ctx.arc(sx, sy, 8, 0, Math.PI * 2);
     ctx.fillStyle = '#e8d0ff';
     ctx.fill();
     ctx.strokeStyle = '#c0a0ff';
     ctx.lineWidth = 2;
     ctx.stroke();
     ctx.beginPath();
-    ctx.arc(cx, cy, 2.5, 0, Math.PI * 2);
+    ctx.arc(sx, sy, 2.5, 0, Math.PI * 2);
     ctx.fillStyle = '#ffffff';
     ctx.fill();
     ctx.beginPath();
-    ctx.moveTo(cx - 14, cy);
-    ctx.lineTo(cx + 14, cy);
-    ctx.moveTo(cx, cy - 14);
-    ctx.lineTo(cx, cy + 14);
+    ctx.moveTo(sx - 14, sy);
+    ctx.lineTo(sx + 14, sy);
+    ctx.moveTo(sx, sy - 14);
+    ctx.lineTo(sx, sy + 14);
     ctx.strokeStyle = '#e8d0ff';
     ctx.lineWidth = 1;
     ctx.stroke();
-  }, [detectRadius]);
+  }, [playerX, playerZ, detectRadius]);
 
   const syncView = useCallback(() => {
     updateAllBackgrounds();
@@ -288,8 +294,8 @@ export default function LeyMapCanvas({
       {/* Map background */}
       <div ref={mapBgRef} style={{ position: 'absolute', inset: 0, backgroundImage: 'url(/duskwood-map.png)', backgroundRepeat: 'no-repeat', imageRendering: 'pixelated', pointerEvents: 'none' }} />
       {/* Ley lines overlay — pre-rendered, CSS-panned */}
-      {linesImageUrl && (
-        <div ref={linesBgRef} style={{ position: 'absolute', inset: 0, backgroundImage: `url(${linesImageUrl})`, backgroundRepeat: 'no-repeat', imageRendering: 'auto', pointerEvents: 'none' }} />
+      {linesReady && linesUrlRef.current && (
+        <div ref={linesBgRef} style={{ position: 'absolute', inset: 0, backgroundImage: `url(${linesUrlRef.current})`, backgroundRepeat: 'no-repeat', imageRendering: 'auto', pointerEvents: 'none' }} />
       )}
       {/* Player dot */}
       <canvas ref={playerCanvasRef} style={{ position: 'absolute', inset: 0, display: 'block', width: '100%', height: '100%', pointerEvents: 'none' }} />
