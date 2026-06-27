@@ -397,6 +397,12 @@ export default function LeyMapCanvas({
       const dy = e.clientY - dragRef.current.sy;
       dragging.current = false;
 
+      // Cancel any pending light-draw RAF and force full redraw
+      if (overlayRaf.current) {
+        cancelAnimationFrame(overlayRaf.current);
+        overlayRaf.current = 0;
+      }
+
       if (Math.abs(dx) < 3 && Math.abs(dy) < 3 && containerRef.current) {
         const rect = containerRef.current.getBoundingClientRect();
         const { wx, wz } = screenToWorld(
