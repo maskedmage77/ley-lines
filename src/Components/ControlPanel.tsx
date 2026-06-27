@@ -68,18 +68,20 @@ export default function ControlPanel({
         onClick={onToggle}
         variant="filled"
         color="dark"
-        size="md"
+        size="lg"
         radius="xl"
         style={{
           position: 'absolute',
           top: 12,
-          right: -16,
+          right: -20,
           zIndex: 20,
           border: '1px solid #2e2e4a',
           boxShadow: '0 0 8px rgba(0,0,0,0.5)',
+          width: 40,
+          height: 40,
         }}
       >
-        {open ? <CaretLeft size={14} /> : <CaretRight size={14} />}
+        {open ? <CaretLeft size={20} /> : <CaretRight size={20} />}
       </ActionIcon>
 
       <div style={{ display: open ? 'block' : 'none' }}>
@@ -170,7 +172,7 @@ export default function ControlPanel({
                     value={params.cellSize}
                     onChange={(v) => onChange({ ...params, cellSize: v })}
                     min={200} max={1200} step={50}
-                    color="violet" size="sm"
+                    color="violet" size="md"
                   />
                 </Stack>
               </Tooltip>
@@ -188,7 +190,7 @@ export default function ControlPanel({
                     value={params.kNeighbors}
                     onChange={(v) => onChange({ ...params, kNeighbors: v })}
                     min={2} max={5} step={1}
-                    color="violet" size="sm"
+                    color="violet" size="md"
                   />
                 </Stack>
               </Tooltip>
@@ -206,7 +208,7 @@ export default function ControlPanel({
                     value={params.detectRadius}
                     onChange={(v) => onChange({ ...params, detectRadius: v })}
                     min={100} max={3000} step={50}
-                    color="violet" size="sm"
+                    color="violet" size="md"
                   />
                 </Stack>
               </Tooltip>
@@ -217,7 +219,7 @@ export default function ControlPanel({
             <Button
               onClick={() => onChange({ ...params, seed: Math.floor(Math.random() * 2147483647) })}
               leftSection={<Shuffle size={14} />}
-              variant="light" color="violet" fullWidth size="sm"
+              variant="light" color="violet" fullWidth size="md"
             >
               Seed {params.seed}
             </Button>
