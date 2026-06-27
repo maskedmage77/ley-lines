@@ -13,7 +13,7 @@ interface Props {
 
 interface ViewState { cx: number; cz: number; scale: number; }
 
-const OFFCANVAS_SIZE = 4096;
+const OFFCANVAS_SIZE = 8192;
 
 export default function LeyMapCanvas({ segments, intersections, playerX, playerZ, detectRadius, onMovePlayer, sidebarOpen }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -117,20 +117,20 @@ export default function LeyMapCanvas({ segments, intersections, playerX, playerZ
       const a = worldToCanvas(s.x1, s.z1), b = worldToCanvas(s.x2, s.z2);
       ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y);
     }
-    ctx.strokeStyle = 'rgba(200,160,255,0.45)'; ctx.lineWidth = 3; ctx.stroke();
+    ctx.strokeStyle = 'rgba(200,160,255,0.5)'; ctx.lineWidth = 1.5; ctx.stroke();
 
     // Local lines
     for (const s of segments.filter(s => s.color === 'local')) {
       if (s.alpha < 0.02) continue;
       const a = worldToCanvas(s.x1, s.z1), b = worldToCanvas(s.x2, s.z2);
       ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y);
-      ctx.strokeStyle = `rgba(100,220,230,${0.3 * s.alpha})`; ctx.lineWidth = 2; ctx.stroke();
+      ctx.strokeStyle = `rgba(100,220,230,${0.4 * s.alpha})`; ctx.lineWidth = 1; ctx.stroke();
     }
 
     // Intersections
     for (const int of intersections) {
       const { x, y } = worldToCanvas(int.x, int.z);
-      ctx.beginPath(); ctx.arc(x, y, 6, 0, Math.PI * 2); ctx.fillStyle = '#e8d8ff'; ctx.fill();
+      ctx.beginPath(); ctx.arc(x, y, 3, 0, Math.PI * 2); ctx.fillStyle = '#f0e8ff'; ctx.fill();
     }
 
     linesUrlRef.current = canvas.toDataURL('image/png');
