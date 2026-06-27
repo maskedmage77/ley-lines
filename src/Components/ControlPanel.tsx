@@ -75,15 +75,16 @@ export default function ControlPanel({
         size="lg"
         radius="xl"
         style={{
-          position: 'absolute',
+          position: 'fixed',
           top: 12,
-          right: -20,
-          zIndex: 20,
+          left: open ? 284 : 12,
+          zIndex: 30,
           border: '2px solid #6a5acd',
           boxShadow: '0 0 12px rgba(120,80,200,0.5)',
           width: 44,
           height: 44,
           background: 'rgba(30,20,60,0.9)',
+          transition: 'left 0.2s ease',
         }}
       >
         {open ? <CaretLeft size={20} /> : <CaretRight size={20} />}
