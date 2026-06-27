@@ -78,7 +78,7 @@ export default function LeyMapCanvas({ segments, intersections, playerX, playerZ
       if (Math.abs(b.sx - a.sx) < 0.3 && Math.abs(b.sy - a.sy) < 0.3) continue;
       ctx.moveTo(a.sx, a.sy); ctx.lineTo(b.sx, b.sy);
     }
-    ctx.strokeStyle = 'rgba(220,180,255,0.7)'; ctx.lineWidth = 2.5; ctx.stroke();
+    ctx.strokeStyle = 'rgba(230,200,255,0.85)'; ctx.lineWidth = 3; ctx.stroke();
 
     // Local lines — individual (per-segment alpha)
     const local = segments.filter(s => s.color === 'local' && s.alpha > 0.02);
@@ -87,7 +87,7 @@ export default function LeyMapCanvas({ segments, intersections, playerX, playerZ
         const a = wtos(s.x1, s.z1, W, H), b = wtos(s.x2, s.z2, W, H);
         if (Math.max(a.sx, b.sx) < -50 || Math.min(a.sx, b.sx) > W + 50) continue;
         ctx.beginPath(); ctx.moveTo(a.sx, a.sy); ctx.lineTo(b.sx, b.sy);
-        ctx.strokeStyle = `rgba(80,230,240,${0.55 * s.alpha})`; ctx.lineWidth = 1.5; ctx.stroke();
+        ctx.strokeStyle = `rgba(80,240,250,${0.7 * s.alpha})`; ctx.lineWidth = 2; ctx.stroke();
       }
     }
 
@@ -203,8 +203,8 @@ export default function LeyMapCanvas({ segments, intersections, playerX, playerZ
   }, [onWheel]);
 
   return (
-    <div ref={containerRef} style={{ flex: '1 1 auto', minWidth: 0, position: 'relative', overflow: 'hidden', cursor: 'crosshair', background: '#06060e' }} onMouseDown={onMouseDown}>
-      <div ref={mapBgRef} style={{ position: 'absolute', inset: 0, backgroundImage: 'url(/duskwood-map.png)', backgroundRepeat: 'no-repeat', imageRendering: 'pixelated', pointerEvents: 'none', filter: 'brightness(1.15) contrast(1.1)' }} />
+    <div ref={containerRef} style={{ flex: '1 1 auto', minWidth: 0, position: 'relative', overflow: 'hidden', cursor: 'crosshair', background: '#020208' }} onMouseDown={onMouseDown}>
+      <div ref={mapBgRef} style={{ position: 'absolute', inset: 0, backgroundImage: 'url(/duskwood-map.png)', backgroundRepeat: 'no-repeat', imageRendering: 'pixelated', pointerEvents: 'none', filter: 'brightness(0.7)' }} />
       <canvas ref={overlayRef} style={{ position: 'absolute', inset: 0, display: 'block', width: '100%', height: '100%', pointerEvents: 'none' }} />
       <div style={{ position: 'absolute', bottom: 16, left: '50%', transform: 'translateX(-50%)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, pointerEvents: 'none', zIndex: 5 }}>
         <span style={{ color: '#c8c8e0', fontSize: 11, fontFamily: 'monospace', fontWeight: 500, textShadow: '0 1px 4px rgba(0,0,0,0.8)' }}>{scaleLabel.blocks.toLocaleString()} blocks</span>
