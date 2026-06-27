@@ -183,8 +183,8 @@ export default function LeyMapCanvas({ segments, intersections, playerX, playerZ
       const dx = e.touches[0].clientX - e.touches[1].clientX;
       const dy = e.touches[0].clientY - e.touches[1].clientY;
       const newDist = Math.sqrt(dx * dx + dy * dy);
-      const ratio = pinchRef.current.dist / Math.max(1, newDist);
-      viewRef.current.scale = Math.max(1, Math.min(300, pinchRef.current.scale * (1 / ratio)));
+      const ratio = newDist / Math.max(1, pinchRef.current.dist);
+      viewRef.current.scale = Math.max(1, Math.min(300, pinchRef.current.scale / ratio));
       scheduleDraw();
     };
     const te = () => { pinchRef.current = null; };

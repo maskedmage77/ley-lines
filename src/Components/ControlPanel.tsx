@@ -66,8 +66,8 @@ export default function ControlPanel({
       {/* Toggle button — always visible */}
       <ActionIcon
         onClick={onToggle}
-        variant="filled"
-        color="dark"
+        variant="subtle"
+        color="violet"
         size="lg"
         radius="xl"
         style={{
@@ -75,10 +75,11 @@ export default function ControlPanel({
           top: 12,
           right: -20,
           zIndex: 20,
-          border: '1px solid #2e2e4a',
-          boxShadow: '0 0 8px rgba(0,0,0,0.5)',
-          width: 40,
-          height: 40,
+          border: '2px solid #6a5acd',
+          boxShadow: '0 0 12px rgba(120,80,200,0.5)',
+          width: 44,
+          height: 44,
+          background: 'rgba(30,20,60,0.9)',
         }}
       >
         {open ? <CaretLeft size={20} /> : <CaretRight size={20} />}
