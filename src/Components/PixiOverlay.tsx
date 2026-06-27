@@ -53,18 +53,19 @@ export default function PixiOverlay(p: Props) {
     if (!containerRef.current) return;
     const app = new Application();
     appRef.current = app;
-    app.init({ resizeTo: containerRef.current, backgroundAlpha: 0, antialias: true, resolution: window.devicePixelRatio || 1, autoDensity: true, preference: 'webgl' })
+    let cancelled = false;
+    app.init({ resizeTo: containerRef.current, backgroundAlpha: 0, antialias: false, resolution: Math.min(window.devicePixelRatio || 1, 2), autoDensity: true })
       .then(() => {
+        if (cancelled) { app.destroy(true); return; }
         containerRef.current!.appendChild(app.canvas);
         Object.assign(app.canvas.style, { position: 'absolute', inset: '0', pointerEvents: 'none' });
-        app.canvas.addEventListener('webglcontextlost', () => console.warn('WebGL context lost — reload if needed'));
         const world = new Container(); worldRef.current = world; app.stage.addChild(world);
         const pg = new Graphics(); playerGfx.current = pg; app.stage.addChild(pg);
         buildWorld(world);
         setReady(true);
       })
       .catch(err => console.error('Pixi init failed:', err));
-    return () => { app.destroy(true); };
+    return () => { cancelled = true; app.destroy(true); };
   }, []);
 
   // Rebuild on data change
