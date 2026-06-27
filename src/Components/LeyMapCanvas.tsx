@@ -36,7 +36,6 @@ export default function LeyMapCanvas({
   const imageLoaded = useRef(false);
   const imgNaturalSize = useRef({ w: 0, h: 0, ox: 0, oz: 0, bw: 0, bh: 0 });
   const overlayRaf = useRef(0);
-  const dragging = useRef(false);
   const [scaleLabel, setScaleLabel] = useState({ blocks: 500, px: 100 });
 
   // Load image + map bounds
@@ -287,67 +286,13 @@ export default function LeyMapCanvas({
     ctx.stroke();
   }, [segments, intersections, playerX, playerZ, detectRadius, cellSize, worldToScreen]);
 
-  // Lightweight draw: only player + detection ring during drag
-  const drawPlayerOnly = useCallback(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    const dpr = window.devicePixelRatio || 1;
-    const W = canvas.clientWidth;
-    const H = canvas.clientHeight;
-    if (W === 0 || H === 0) return;
-    canvas.width = W * dpr;
-    canvas.height = H * dpr;
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, W, H);
-
-    const { scale } = viewRef.current;
-    const ps = worldToScreen(playerX, playerZ, W, H);
-    const rPx = detectRadius / scale;
-
-    if (rPx > 1 && rPx < W * 2) {
-      ctx.beginPath();
-      ctx.arc(ps.sx, ps.sy, rPx, 0, Math.PI * 2);
-      ctx.strokeStyle = 'rgba(200, 160, 255, 0.35)';
-      ctx.lineWidth = 2;
-      ctx.setLineDash([6, 10]);
-      ctx.stroke();
-      ctx.setLineDash([]);
-    }
-
-    ctx.beginPath();
-    ctx.arc(ps.sx, ps.sy, 8, 0, Math.PI * 2);
-    ctx.fillStyle = '#e8d0ff';
-    ctx.fill();
-    ctx.strokeStyle = '#c0a0ff';
-    ctx.lineWidth = 2;
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.arc(ps.sx, ps.sy, 2.5, 0, Math.PI * 2);
-    ctx.fillStyle = '#ffffff';
-    ctx.fill();
-    ctx.beginPath();
-    ctx.moveTo(ps.sx - 14, ps.sy);
-    ctx.lineTo(ps.sx + 14, ps.sy);
-    ctx.moveTo(ps.sx, ps.sy - 14);
-    ctx.lineTo(ps.sx, ps.sy + 14);
-    ctx.strokeStyle = '#e8d0ff';
-    ctx.lineWidth = 1;
-    ctx.stroke();
-  }, [playerX, playerZ, detectRadius, worldToScreen]);
-
   // Schedule a batched redraw — at most once per frame
   const scheduleDraw = useCallback(() => {
     if (overlayRaf.current) return;
     overlayRaf.current = requestAnimationFrame(() => {
       overlayRaf.current = 0;
       updateBackground();
-      if (dragging.current) {
-        drawPlayerOnly();
-      } else {
-        drawOverlay();
-      }
+      drawOverlay();
       // Update scale bar
       const s = viewRef.current.scale;
       const containerW = containerRef.current?.clientWidth ?? 800;
@@ -360,7 +305,7 @@ export default function LeyMapCanvas({
       }
       setScaleLabel({ blocks: best, px: Math.round(best / s) });
     });
-  }, [updateBackground, drawOverlay, drawPlayerOnly]);
+  }, [updateBackground, drawOverlay]);
 
   // ResizeObserver
   useEffect(() => {
@@ -383,7 +328,6 @@ export default function LeyMapCanvas({
   useEffect(() => {
     const onMove = (e: MouseEvent) => {
       if (!dragRef.current.active) return;
-      dragging.current = true;
       const scale = viewRef.current.scale;
       viewRef.current.cx =
         dragRef.current.scx - (e.clientX - dragRef.current.sx) * scale;
@@ -395,13 +339,7 @@ export default function LeyMapCanvas({
       if (!dragRef.current.active) return;
       const dx = e.clientX - dragRef.current.sx;
       const dy = e.clientY - dragRef.current.sy;
-      dragging.current = false;
-
-      // Cancel any pending light-draw RAF and force full redraw
-      if (overlayRaf.current) {
-        cancelAnimationFrame(overlayRaf.current);
-        overlayRaf.current = 0;
-      }
+      dragRef.current.active = false;
 
       if (Math.abs(dx) < 3 && Math.abs(dy) < 3 && containerRef.current) {
         const rect = containerRef.current.getBoundingClientRect();
@@ -413,9 +351,8 @@ export default function LeyMapCanvas({
         );
         onMovePlayer(Math.round(wx), Math.round(wz));
       }
-      // Force full redraw after drag ends
-      updateBackground();
-      drawOverlay();
+      // Redraw after drag ends
+      scheduleDraw();
     };
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
