@@ -63,11 +63,17 @@ export default function PixiOverlay({ segments, intersections, playerX, playerZ,
     return () => { app.destroy(true); };
   }, []);
 
-  // ── Draw lines & intersections (when data changes) ──
-  useEffect(() => {
+  // ── Draw lines & intersections (when data OR scale changes) ──
+  const rebuildGraphics = useCallback(() => {
     if (!ready || !worldRef.current) return;
     const world = worldRef.current;
+    const scale = viewRef.current.scale;
     world.removeChildren();
+
+    // Screen-space line widths (constant visual size regardless of zoom)
+    const majorWidth = Math.max(1.5, 3 / Math.sqrt(scale));
+    const localWidth = Math.max(0.8, 1.8 / Math.sqrt(scale));
+    const gridAlpha = Math.max(0.015, 0.04 / scale);
 
     // Grid
     const grid = new Graphics();
@@ -78,7 +84,7 @@ export default function PixiOverlay({ segments, intersections, playerX, playerZ,
     for (let gz = -15000; gz <= 15000; gz += gs) {
       grid.moveTo(-15000, gz); grid.lineTo(15000, gz);
     }
-    grid.stroke({ width: 0.5, color: 0xffffff, alpha: 0.04 });
+    grid.stroke({ width: Math.max(0.3, 0.5 / scale), color: 0xffffff, alpha: gridAlpha });
     world.addChild(grid);
 
     // Major lines
@@ -86,8 +92,8 @@ export default function PixiOverlay({ segments, intersections, playerX, playerZ,
     for (const s of segments.filter(s => s.color === 'major')) {
       major.moveTo(s.x1, s.z1); major.lineTo(s.x2, s.z2);
     }
-    major.stroke({ width: 2, color: 0xc8a0ff, alpha: 0.7 });
-    major.filters = [new BlurFilter({ strength: 0.5, quality: 2 })];
+    major.stroke({ width: majorWidth, color: 0xc8a0ff, alpha: 0.7 });
+    major.filters = [new BlurFilter({ strength: Math.min(1, 1.5 / scale), quality: 2 })];
     world.addChild(major);
 
     // Local lines
@@ -95,29 +101,46 @@ export default function PixiOverlay({ segments, intersections, playerX, playerZ,
     for (const s of segments.filter(s => s.color === 'local')) {
       if (s.alpha < 0.02) continue;
       local.moveTo(s.x1, s.z1); local.lineTo(s.x2, s.z2);
-      local.stroke({ width: 1.2, color: 0x64d2d8, alpha: 0.5 * s.alpha });
+      local.stroke({ width: localWidth, color: 0x64d2d8, alpha: 0.5 * s.alpha });
     }
     world.addChild(local);
 
     // Intersections
+    const dotRadius = Math.max(3, 8 / Math.sqrt(scale));
     const dots = new Graphics();
     for (const int of intersections) {
-      dots.circle(int.x, int.z, 8);
+      dots.circle(int.x, int.z, dotRadius);
       dots.fill({ color: 0xf0e8ff, alpha: 0.9 });
-      dots.circle(int.x, int.z, 4);
+      dots.circle(int.x, int.z, dotRadius * 0.5);
       dots.fill({ color: 0xffffff, alpha: 1 });
     }
-    dots.filters = [new BlurFilter({ strength: 0.3, quality: 2 })];
+    dots.filters = [new BlurFilter({ strength: Math.min(0.5, 1 / scale), quality: 2 })];
     world.addChild(dots);
+  }, [segments, intersections, ready]);
 
-    // Position world at center
-    syncView();
+  // Rebuild when scale changes significantly (log scale thresholds)
+  const lastScaleRef = useRef(0);
+  useEffect(() => {
+    const s = viewRef.current.scale;
+    const threshold = lastScaleRef.current * 1.3;
+    if (lastScaleRef.current === 0 || s > threshold || s < lastScaleRef.current / 1.3) {
+      lastScaleRef.current = s;
+      rebuildGraphics();
+    }
   }, [segments, intersections, ready]);
 
   // ── Sync view transform ────────────────────────
   const syncView = useCallback(() => {
     if (!worldRef.current || !playerRef.current || !appRef.current) return;
     const { cx, cz, scale } = viewRef.current;
+
+    // Rebuild if scale changed significantly
+    const threshold = lastScaleRef.current * 1.3;
+    if (lastScaleRef.current === 0 || scale > threshold || scale < lastScaleRef.current / 1.3) {
+      lastScaleRef.current = scale;
+      rebuildGraphics();
+    }
+
     const app = appRef.current;
     const W = app.screen.width;
     const H = app.screen.height;
@@ -161,7 +184,7 @@ export default function PixiOverlay({ segments, intersections, playerX, playerZ,
     let best = nice[0];
     for (const b of nice) { if (b / scale <= maxPx) best = b; else break; }
     setScaleLabel({ blocks: best, px: Math.round(best / scale) });
-  }, [playerX, playerZ, detectRadius, mapBounds]);
+  }, [playerX, playerZ, detectRadius, mapBounds, rebuildGraphics]);
 
   // Redraw on player move
   useEffect(() => { if (ready) syncView(); }, [playerX, playerZ, ready, syncView]);
