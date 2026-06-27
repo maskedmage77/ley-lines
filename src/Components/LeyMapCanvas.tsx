@@ -46,8 +46,8 @@ export default function LeyMapCanvas({ segments, intersections, playerX, playerZ
       updateBg(mapBgRef.current, w, h, ox, oz, bw, bh);
     }
     if (linesUrlRef.current) {
-      const hw = OFFCANVAS_SIZE / 2;
-      updateBg(linesBgRef.current, OFFCANVAS_SIZE, OFFCANVAS_SIZE, -hw, -hw, OFFCANVAS_SIZE, OFFCANVAS_SIZE);
+      const WORLD_EXTENT = 600000;
+      updateBg(linesBgRef.current, OFFCANVAS_SIZE, OFFCANVAS_SIZE, -WORLD_EXTENT, -WORLD_EXTENT, 2 * WORLD_EXTENT, 2 * WORLD_EXTENT);
     }
   }, [updateBg]);
 
@@ -103,13 +103,18 @@ export default function LeyMapCanvas({ segments, intersections, playerX, playerZ
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     ctx.clearRect(0, 0, OFFCANVAS_SIZE, OFFCANVAS_SIZE);
-    const hw = OFFCANVAS_SIZE / 2;
-    const w2c = (wx: number, wz: number) => ({ x: hw + wx, y: hw + wz });
+
+    // Map world coords (-WORLD_EXTENT..+WORLD_EXTENT) → canvas (0..OFFCANVAS_SIZE)
+    const WORLD_EXTENT = 600000;
+    const worldToCanvas = (wx: number, wz: number) => ({
+      x: ((wx + WORLD_EXTENT) / (2 * WORLD_EXTENT)) * OFFCANVAS_SIZE,
+      y: ((wz + WORLD_EXTENT) / (2 * WORLD_EXTENT)) * OFFCANVAS_SIZE,
+    });
 
     // Major lines
     ctx.beginPath();
     for (const s of segments.filter(s => s.color === 'major')) {
-      const a = w2c(s.x1, s.z1), b = w2c(s.x2, s.z2);
+      const a = worldToCanvas(s.x1, s.z1), b = worldToCanvas(s.x2, s.z2);
       ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y);
     }
     ctx.strokeStyle = 'rgba(200,160,255,0.45)'; ctx.lineWidth = 3; ctx.stroke();
@@ -117,14 +122,14 @@ export default function LeyMapCanvas({ segments, intersections, playerX, playerZ
     // Local lines
     for (const s of segments.filter(s => s.color === 'local')) {
       if (s.alpha < 0.02) continue;
-      const a = w2c(s.x1, s.z1), b = w2c(s.x2, s.z2);
+      const a = worldToCanvas(s.x1, s.z1), b = worldToCanvas(s.x2, s.z2);
       ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y);
       ctx.strokeStyle = `rgba(100,220,230,${0.3 * s.alpha})`; ctx.lineWidth = 2; ctx.stroke();
     }
 
     // Intersections
     for (const int of intersections) {
-      const { x, y } = w2c(int.x, int.z);
+      const { x, y } = worldToCanvas(int.x, int.z);
       ctx.beginPath(); ctx.arc(x, y, 6, 0, Math.PI * 2); ctx.fillStyle = '#e8d8ff'; ctx.fill();
     }
 
