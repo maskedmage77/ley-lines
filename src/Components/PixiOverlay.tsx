@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useCallback, useState } from 'react';
-import { Application, Graphics, Container, BlurFilter } from 'pixi.js';
+import { Application, Graphics, Container } from 'pixi.js';
 import type { PolySegment, LeyIntersection } from '../Types';
 
 interface Props {
@@ -40,13 +40,13 @@ export default function PixiOverlay(p: Props) {
     g.stroke({ width: 0.5, color: 0xffffff, alpha: 0.04 }); world.addChild(g);
     const maj = new Graphics();
     for (const s of segments.filter(s => s.color === 'major')) { maj.moveTo(s.x1, s.z1); maj.lineTo(s.x2, s.z2); }
-    maj.stroke({ width: 4, color: 0xc8a0ff, alpha: 0.7 }); maj.filters = [new BlurFilter({ strength: 0.3, quality: 2 })]; world.addChild(maj);
+    maj.stroke({ width: 4, color: 0xc8a0ff, alpha: 0.7 }); world.addChild(maj);
     const loc = new Graphics();
     for (const s of segments.filter(s => s.color === 'local')) { if (s.alpha < 0.02) continue; loc.moveTo(s.x1, s.z1); loc.lineTo(s.x2, s.z2); loc.stroke({ width: 2, color: 0x64d2d8, alpha: 0.6 * s.alpha }); }
     world.addChild(loc);
     const d = new Graphics();
     for (const i of intersections) { d.circle(i.x, i.z, 12); d.fill({ color: 0xf0e8ff, alpha: 0.9 }); d.circle(i.x, i.z, 6); d.fill({ color: 0xffffff, alpha: 1 }); }
-    d.filters = [new BlurFilter({ strength: 0.25, quality: 2 })]; world.addChild(d);
+    d.filters = []; world.addChild(d);
   }, [segments, intersections]);
 
   const syncView = useCallback(() => {
@@ -94,6 +94,7 @@ export default function PixiOverlay(p: Props) {
       antialias: false,
       resolution: Math.min(window.devicePixelRatio || 1, 2),
       autoDensity: true,
+      preference: 'canvas',
     }).then(() => {
       if (cancelled) { app.destroy(false); return; }
       el.appendChild(app.canvas);
