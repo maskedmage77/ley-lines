@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useCallback, useState } from 'react';
 import { Application, Graphics, Container, BlurFilter } from 'pixi.js';
 import type { PolySegment, LeyIntersection } from '../Types';
 
@@ -77,12 +77,12 @@ export default function PixiOverlay(p: Props) {
     setScaleLabel({ blocks: best, px: Math.round(best / scale) });
   }, [playerX, playerZ, detectRadius, mapBounds]);
 
-  // ── Init (once, guarded against React strict mode double-mount) ──
-  useEffect(() => {
+  // ── Init (once, guarded against double-init) ──
+  useLayoutEffect(() => {
     if (initRef.current) return;
-    initRef.current = true;
     const el = containerRef.current;
-    if (!el) return;
+    if (!el || el.clientWidth === 0) return;
+    initRef.current = true;
     let cancelled = false;
 
     const app = new Application();
