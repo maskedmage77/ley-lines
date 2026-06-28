@@ -1,6 +1,6 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState } from 'react';
 import { createTheme, MantineProvider } from '@mantine/core';
-import PixelOverlay from './Components/PixiOverlay';
+import LeyMapCanvas from './Components/LeyMapCanvas';
 import ControlPanel from './Components/ControlPanel';
 import { useLeyLines } from './Hooks/useLeyLines';
 import type { LeyParams } from './Types';
@@ -25,13 +25,6 @@ export default function App() {
     seed: 42,
   });
   const [sidebarOpen, setSidebarOpen] = useState(true);
-
-  const [mapBounds, setMapBounds] = useState<{ ox: number; oz: number; bw: number; bh: number } | null>(null);
-  const mapRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    fetch('/duskwood-bounds.json').then(r => r.json()).then(setMapBounds);
-  }, []);
 
   const {
     segments,
@@ -65,31 +58,15 @@ export default function App() {
           open={sidebarOpen}
           onToggle={() => setSidebarOpen((o) => !o)}
         />
-        <div style={{ flex: '1 1 auto', minWidth: 0, position: 'relative', overflow: 'hidden', background: '#020208' }}>
-          {mapBounds && (
-            <div
-              ref={mapRef}
-              style={{
-                position: 'absolute', inset: 0,
-                backgroundImage: 'url(/duskwood-map.png)',
-                backgroundRepeat: 'no-repeat',
-                imageRendering: 'pixelated',
-                filter: 'brightness(0.7)',
-              }}
-            />
-          )}
-          <PixelOverlay
-            segments={segments}
-            intersections={intersections}
-            playerX={playerX}
-            playerZ={playerZ}
-            detectRadius={params.detectRadius}
-            onMovePlayer={movePlayer}
-            sidebarOpen={sidebarOpen}
-            mapRef={mapRef}
-            mapBounds={mapBounds}
-          />
-        </div>
+        <LeyMapCanvas
+          segments={segments}
+          intersections={intersections}
+          playerX={playerX}
+          playerZ={playerZ}
+          detectRadius={params.detectRadius}
+          onMovePlayer={movePlayer}
+          sidebarOpen={sidebarOpen}
+        />
       </div>
     </MantineProvider>
   );
