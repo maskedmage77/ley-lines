@@ -19,17 +19,18 @@ export default function PixiOverlay(p: Props) {
   const appRef = useRef<Application | null>(null);
   const worldRef = useRef<Container | null>(null);
   const playerGfx = useRef<Graphics | null>(null);
+  const initRef = useRef(false);
   const [scaleLabel, setScaleLabel] = useState({ blocks: 500, px: 100 });
   const [ready, setReady] = useState(false);
   const viewRef = useRef({ cx: 0, cz: 0, scale: 12 });
   const dragRef = useRef({ active: false, sx: 0, sy: 0, scx: 0, scz: 0 });
   const pinchRef = useRef<{ dist: number; scale: number } | null>(null);
+
   const stow = useCallback((sx: number, sy: number, W: number, H: number) => {
     const { cx, cz, scale } = viewRef.current;
     return { wx: cx + (sx - W / 2) * scale, wz: cz + (sy - H / 2) * scale };
   }, []);
 
-  // World builder
   const buildWorld = useCallback((world: Container) => {
     world.removeChildren();
     const g = new Graphics();
@@ -48,30 +49,6 @@ export default function PixiOverlay(p: Props) {
     d.filters = [new BlurFilter({ strength: 0.25, quality: 2 })]; world.addChild(d);
   }, [segments, intersections]);
 
-  // Init
-  useEffect(() => {
-    if (!containerRef.current) return;
-    const app = new Application();
-    appRef.current = app;
-    let cancelled = false;
-    app.init({ resizeTo: containerRef.current, backgroundAlpha: 0, antialias: false, resolution: Math.min(window.devicePixelRatio || 1, 2), autoDensity: true })
-      .then(() => {
-        if (cancelled) { app.destroy(true); return; }
-        containerRef.current!.appendChild(app.canvas);
-        Object.assign(app.canvas.style, { position: 'absolute', inset: '0', pointerEvents: 'none' });
-        const world = new Container(); worldRef.current = world; app.stage.addChild(world);
-        const pg = new Graphics(); playerGfx.current = pg; app.stage.addChild(pg);
-        buildWorld(world);
-        setReady(true);
-      })
-      .catch(err => console.error('Pixi init failed:', err));
-    return () => { cancelled = true; app.destroy(true); };
-  }, []);
-
-  // Rebuild on data change
-  useEffect(() => { if (ready && worldRef.current) buildWorld(worldRef.current); }, [ready, buildWorld]);
-
-  // Sync view
   const syncView = useCallback(() => {
     const a = appRef.current; const w = worldRef.current; const pg = playerGfx.current;
     if (!a?.renderer || !w || !pg) return;
@@ -100,20 +77,48 @@ export default function PixiOverlay(p: Props) {
     setScaleLabel({ blocks: best, px: Math.round(best / scale) });
   }, [playerX, playerZ, detectRadius, mapBounds]);
 
-  useEffect(() => { if (ready) syncView(); }, [playerX, playerZ, ready]);
-  useEffect(() => { if (ready) { const t = setTimeout(syncView, 200); return () => clearTimeout(t); } }, [sidebarOpen, ready]);
+  // ── Init (once, guarded against React strict mode double-mount) ──
   useEffect(() => {
-    if (!appRef.current || !containerRef.current) return;
-    const ro = new ResizeObserver(() => {
-      if (appRef.current?.renderer && containerRef.current) {
-        const { width, height } = containerRef.current.getBoundingClientRect();
-        appRef.current.renderer.resize(width, height);
-      }
+    if (initRef.current) return;
+    initRef.current = true;
+    const el = containerRef.current;
+    if (!el) return;
+    let cancelled = false;
+
+    const app = new Application();
+    appRef.current = app;
+
+    app.init({
+      resizeTo: el,
+      backgroundAlpha: 0,
+      antialias: false,
+      resolution: Math.min(window.devicePixelRatio || 1, 2),
+      autoDensity: true,
+    }).then(() => {
+      if (cancelled) { app.destroy(false); return; }
+      el.appendChild(app.canvas);
+      Object.assign(app.canvas.style, { position: 'absolute', inset: '0', pointerEvents: 'none' });
+      const world = new Container(); worldRef.current = world; app.stage.addChild(world);
+      const pg = new Graphics(); playerGfx.current = pg; app.stage.addChild(pg);
+      buildWorld(world);
       syncView();
-    });
-    ro.observe(containerRef.current);
-    return () => ro.disconnect();
-  }, [ready, syncView]);
+      setReady(true);
+    }).catch(err => console.error('Pixi init failed:', err));
+
+    return () => {
+      cancelled = true;
+      try { app.destroy(false); } catch { /* init may not have completed */ }
+    };
+  }, []);
+
+  // Rebuild on data change
+  useEffect(() => { if (ready && worldRef.current) { buildWorld(worldRef.current); syncView(); } }, [ready, buildWorld]);
+
+  // Sidebar toggle → retrigger resizeTo
+  useEffect(() => {
+    const a = appRef.current as any;
+    if (ready && a?.resizeTo !== undefined) a.resizeTo = containerRef.current;
+  }, [sidebarOpen, ready]);
 
   // Mouse
   const onPointerDown = (e: React.PointerEvent) => { dragRef.current = { active: true, sx: e.clientX, sy: e.clientY, scx: viewRef.current.cx, scz: viewRef.current.cz }; };
